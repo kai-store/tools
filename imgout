@@ -1,0 +1,204 @@
+#!/bin/bash
+
+TARGET_NAME=sp9820e_2c10
+OUT_IMG_DIR=release-${TARGET_NAME}
+
+MODEM_BINS=device/sprd/sharkle/${TARGET_NAME}/modem_bins
+
+XML_FILE=sp9820e_2c10.xml
+
+if [ x"$YUNOS_SUPPORT_SEC_BOOT" = x"true" ] ; then
+#  do not redirect folder cause jenkins build system can't find it
+#    OUT_IMG_DIR=release-${TARGET_NAME}-sign
+    XML_FILE=SharkL5ModeMarlinAndroid5.1_SE.xml
+fi
+
+#if [ -f out/target/product/$TARGET_NAME/cmccmodem ] ; then
+#MODEM_BINS=device/sprd/${TARGET_NAME}/modem_bins/CP0_for_CMCC
+#fi
+
+function copy_target_files()
+{
+    if [ $# != 2 ] || [ ! -d $1 ]; then
+        echo echo "usage: ${FUNCNAME[0]} <image out dir> <target name>"
+        retnru 255
+    fi
+    local imgout_dir=$1
+    local target_name=$2
+    local target_files_zip=$(ls -lt out/target/product/${target_name}/obj/PACKAGING/target_files_intermediates/*-target_files-*.zip | tail -1 | awk '{print $NF}')
+
+    if [ -f "${target_files_zip}" ]; then
+        cp -f ${target_files_zip} ${imgout_dir}/target_files.zip
+        zip -q -d ${imgout_dir}/target_files.zip uboot.img SYSTEM/* RESIDENTFLASH/* /DATA* /IMAGES*
+    else
+        echo "copy ota target files failed"
+        return 1
+    fi
+}
+
+function copy_ota_tools()
+{
+    if [ $# != 1 ] || [ ! -d $1 ]; then
+        echo echo "usage: ${FUNCNAME[0]} <image out dir>"
+        retnru 255
+    fi
+    local imgout_dir=$1
+
+    cp -f aliyunos/build/tools/ota_from_images ${imgout_dir}/
+    cp -f aliyunos/build/tools/depack_PAC ${imgout_dir}/
+
+    local host_tools=${imgout_dir}/otatools/linux-x86
+    local release_tools=${imgout_dir}/otatools/releasetools
+    local extensions_tools=${imgout_dir}/otatools/tool_extensions
+
+    mkdir -p ${host_tools}/bin
+    mkdir -p ${host_tools}/framework
+    mkdir -p ${host_tools}/lib
+    mkdir -p ${release_tools}
+    mkdir -p ${extensions_tools}
+
+
+    cp -f out/host/linux-x86/bin/acp ${host_tools}/bin/
+    cp -f out/host/linux-x86/bin/bsdiff ${host_tools}/bin/
+    cp -f out/host/linux-x86/bin/e2fsck ${host_tools}/bin/
+    cp -f out/host/linux-x86/bin/imgdiff ${host_tools}/bin/
+    cp -f out/host/linux-x86/bin/make_ext4fs ${host_tools}/bin/
+    cp -f out/host/linux-x86/bin/minigzip ${host_tools}/bin/
+    cp -f out/host/linux-x86/bin/mkbootfs ${host_tools}/bin/
+    cp -f out/host/linux-x86/bin/mkbootimg ${host_tools}/bin/
+    cp -f out/host/linux-x86/bin/mkimage ${host_tools}/bin/
+    cp -f out/host/linux-x86/bin/mkuserimg.sh ${host_tools}/bin/
+    cp -f out/host/linux-x86/bin/simg2img ${host_tools}/bin/
+    cp -f out/host/linux-x86/bin/fs_config ${host_tools}/bin/
+    cp -f out/host/linux-x86/bin/mkyaffs2image ${host_tools}/bin/
+    cp -f out/host/linux-x86/bin/zipalign ${host_tools}/bin/
+    cp -f out/host/linux-x86/bin/build_verity_tree ${host_tools}/bin/
+    cp -f out/host/linux-x86/bin/verity_signer ${host_tools}/bin/
+    cp -f out/host/linux-x86/bin/append2simg ${host_tools}/bin/
+    cp -f out/host/linux-x86/bin/boot_signer ${host_tools}/bin/
+    cp -f out/host/linux-x86/bin/aapt ${host_tools}/bin/
+    cp -f out/host/linux-x86/lib/libext2*.so ${host_tools}/lib/
+    cp -f out/host/linux-x86/framework/signapk.jar ${host_tools}/framework/
+    cp -f out/host/linux-x86/framework/dumpkey.jar ${host_tools}/framework/
+
+    cp -f build/tools/releasetools/* ${release_tools}/
+
+    # if releasetools.py exist, copy it to tool_extensions
+    if [ -f device/alibaba/common/releasetools.py ]; then
+        cp -f device/alibaba/common/releasetools.py ${extensions_tools}/
+    fi
+
+    cd ${imgout_dir}
+    zip -rq otatools.zip otatools/*
+    rm -rf otatools
+    cd -
+}
+
+function copy_files ()
+{
+if [ -d $OUT_IMG_DIR ]; then
+        rm -rf ./$OUT_IMG_DIR
+fi
+mkdir ./$OUT_IMG_DIR
+
+AP_IMG_LIST="fdl1-sign.bin fdl2-sign.bin u-boot-spl-16k-sign.bin u-boot-sign.bin boot-sign.img recovery-sign.img system_raw.img system.img userdata.img cache.img prodnv.img sml-sign.bin tos-sign.bin persist.img usbmsc.img $XML_FILE"
+
+#add below for fota make
+AP_IMG_LIST="$AP_IMG_LIST ramdisk.img ramdisk-recovery.img oem_fota_meta.zip"
+echo "$AP_IMG_LIST"
+
+#copy image files
+echo "copying image from out folder"
+for _file in $AP_IMG_LIST 
+do
+    echo "copy $_file to ${OUT_IMG_DIR}"
+    cp out/target/product/$TARGET_NAME/$_file ${OUT_IMG_DIR}
+done
+
+
+MODEM_BIN_LIST="gnssbdmodem.bin gnssmodem.bin ltemodem.bin ltedsp.bin ltegdsp.bin ltenvitem.bin wcnmodem.bin pmsys.bin kai_240320.bmp"
+#copy modem_bin files
+echo "copying modem bin from ${MODEM_BINS} folder"
+for _modem_file in $MODEM_BIN_LIST 
+do
+    echo "copy $_modem_file to ${OUT_IMG_DIR}"
+    cp out/target/product/$TARGET_NAME/$_modem_file ${OUT_IMG_DIR}
+ #   cp ${MODEM_BINS}/$_modem_file ${OUT_IMG_DIR}
+done
+
+echo "copying file_contexts"
+#copy file_contexts
+#cp out/target/product/$TARGET_NAME/root/file_contexts ${OUT_IMG_DIR}
+#cp out/target/product/$TARGET_NAME/root/file_contexts out/target/product/$TARGET_NAME
+
+echo "copying vmlinux"
+#copy vmlinux 
+cp out/target/product/$TARGET_NAME/obj/KERNEL/vmlinux ${OUT_IMG_DIR}
+
+#copy policy.conf
+#cp out/target/product/$TARGET_NAME/obj/ETC/sepolicy_intermediates/policy.conf ${OUT_IMG_DIR}
+
+#copy Logo
+#echo "copying Logo"
+#cp ${MODEM_BINS}/Logo.bmp ${OUT_IMG_DIR}/Logo.bmp
+
+#copy perl file
+#echo "copying $PERL_FILE"
+#cp aliyunos/build/tools/$PERL_FILE ${OUT_IMG_DIR}
+#echo "copying crc tool"
+#cp aliyunos/build/tools/write_crc_PAC ${OUT_IMG_DIR}
+
+#copy device/sprd and zip
+#zip -r ${OUT_IMG_DIR}/sprd.zip device/sprd/
+
+#copy_target_files ${OUT_IMG_DIR} ${TARGET_NAME}
+#copy_ota_tools ${OUT_IMG_DIR}
+#cp ${OUT_IMG_DIR}/target_files.zip out/target/product/$TARGET_NAME
+#cp ${OUT_IMG_DIR}/otatools.zip out/target/product/$TARGET_NAME
+
+echo "*******************************************************"
+echo "copy All Image and Files Done!"
+echo "*******************************************************"
+}
+
+
+function create_pac()
+{
+echo "*******************************************************"
+echo ""
+echo "creat $release_version.pac file..."
+cd $OUT_IMG_DIR
+
+/usr/bin/perl $PERL_FILE $release_version.pac "SharkL5ModeMarlinAndroid5.1" $release_version $XML_FILE fdl1.bin fdl2.bin \
+ltenvitem.bin prodnv.img u-boot-spl-16k.bin ltemodem.bin ltedsp.bin ltegdsp.bin ltewarm.bin \
+pmsys.bin wcnfdl.bin wcnmodem.bin boot.img recovery.img system.img \
+oem.img userdata.img Logo.bmp Logo.bmp cache.img u-boot.bin persist.img
+
+cd ..
+echo "creat $release_version.pac file Done!"
+echo ""
+echo "*******************************************************"
+}
+
+if [ $# -eq 1 ] && [ "$1" = "-h" ] ; then
+    echo "--------------------------------------------------------------------"
+    echo "usage:   `basename $0` [release_version]"
+    echo ""
+    echo "e.g.:    `basename $0` ALIYUNOS_3.1.0_SPRD_9830_DEV"
+    echo "--------------------------------------------------------------------"
+    exit 0
+fi
+
+if [ -n "$1" ] ; then
+    release_version=$1
+else
+    release_version=ALIYUNOS-3.2.0-SP9832-$(date +%Y%m%d-%H%M)
+fi
+
+copy_files
+
+
+   echo "copy file done!!!!!!!!"
+
+
+
